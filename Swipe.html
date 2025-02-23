@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pac-Man with Gesture Control</title>
+    
+<audio autoplay src="Pac-Man.mp3.mp3"></audio>
+
+    <style>
+        body { 
+            text-align: center; 
+            margin: 0; 
+            background: black; 
+            overflow: hidden; 
+            color: white;
+            touch-action: none;
+            user-select: none;
+        }
+        canvas { 
+            background: #000; 
+            display: block; 
+            margin: auto;
+            touch-action: none;
+        }
+        .dialog {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            color: black;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        .button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #4a90e2;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: background 0.3s;
+        }
+        .button:hover {
+            background: #357abd;
+        }
+        .phase-indicator {
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 15px;
+            border-radius: 5px;
+        }
+        .score {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .gesture-hint {
+            position: fixed;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 16px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 15px;
+            border-radius: 5px;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div id="score" class="score">Score: 0</div>
+    <div id="startDialog" class="dialog">
+        <h2>Pac-Man Game</h2>
+        <p>Swipe or use arrow keys to move Pac-Man!</p>
+        <p>Collect dots and avoid the ghost.</p>
+        <button class="button" onclick="startGame()">Start Game</button>
+    </div>
+    
+    <div id="gameOverDialog" class="dialog" style="display: none;">
+        <h2>Game Over!</h2>
+        <p>Final Score: <span id="finalScore">0</span></p>
+        <button class="button" onclick="resetGame()">Play Again</button>
+    </div>
+    
+    <div class="phase-indicator">Phase: <span id="currentPhase">1</span></div>
+    <div class="gesture-hint">← Swipe to move →</div>
+    
+    <canvas id="gameCanvas"></canvas>
+    
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Set canvas size based on window size
+        function resizeCanvas() {
+            canvas.width = Math.min(window.innerWidth - 20, 600);
+            canvas.height = Math.min(window.innerHeight - 20, 600);
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        let gameStarted = false;
+        let gameOver = false;
+        let score = 0;
+        let currentPhase = 1;
+
+        // Game objects
+        let pacMan = {
+            x: 50,
+            y: 50,
+            size: 30,
+            speed: 3,
+            dx: 0,
+            dy: 0,
+            mouthOpen: 0,
+            mouthDir: 1
+        };
+
+        let ghost = {
+            x: canvas.width - 50,
+            y: canvas.height - 50,
+            size: 30,
+            speed: 2,
+            dx: 0,
+            dy: 0
+        };
+
+        // Dots for collection
+        let dots = [];
+        function generateDots() {
+            dots = [];
+            for (let i = 0; i < 20; i++) {
+                dots.push({
+                    x: Math.random() * (canvas.width - 40) + 20,
+                    y: Math.random() * (canvas.height - 40) + 20,
+                    size: 6,
+                    collected: false
+                });
+            }
+        }
+
+        // Touch controls
+        let touchStart = { x: 0, y: 0 };
+        let touchEnd = { x: 0, y: 0 };
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            touchStart.x = e.touches[0].clientX;
+            touchStart.y = e.touches[0].clientY;
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+        });
+
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            touchEnd.x = e.changedTouches[0].clientX;
+            touchEnd.y = e.changedTouches[0].clientY;
+            
+            const dx = touchEnd.x - touchStart.x;
+            const dy = touchEnd.y - touchStart.y;
+            
+            if (Math.abs(dx) > Math.abs(dy)) {
+                // Horizontal swipe
+                if (dx > 0) {
+                    pacMan.dx = pacMan.speed;
+                    pacMan.dy = 0;
+                } else {
+                    pacMan.dx = -pacMan.speed;
+                    pacMan.dy = 0;
+                }
+            } else {
+                // Vertical swipe
+                if (dy > 0) {
+                    pacMan.dx = 0;
+                    pacMan.dy = pacMan.speed;
+                } else {
+                    pacMan.dx = 0;
+                    pacMan.dy = -pacMan.speed;
+                }
+            }
+        });
+
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            if (!gameStarted) return;
+            
+            switch(e.key) {
+                case 'ArrowLeft':
+                    pacMan.dx = -pacMan.speed;
+                    pacMan.dy = 0;
+                    break;
+                case 'ArrowRight':
+                    pacMan.dx = pacMan.speed;
+                    pacMan.dy = 0;
+                    break;
+                case 'ArrowUp':
+                    pacMan.dx = 0;
+                    pacMan.dy = -pacMan.speed;
+                    break;
+                case 'ArrowDown':
+                    pacMan.dx = 0;
+                    pacMan.dy = pacMan.speed;
+                    break;
+            }
+        });
+
+        function startGame() {
+            document.getElementById('startDialog').style.display = 'none';
+            gameStarted = true;
+            generateDots();
+            update();
+        }
+
+        function resetGame() {
+            document.getElementById('gameOverDialog').style.display = 'none';
+            score = 0;
+            document.getElementById('score').textContent = 'Score: 0';
+            
+            pacMan.x = 50;
+            pacMan.y = 50;
+            pacMan.dx = 0;
+            pacMan.dy = 0;
+            
+            ghost.x = canvas.width - 50;
+            ghost.y = canvas.height - 50;
+            
+            generateDots();
+            gameOver = false;
+            gameStarted = true;
+            update();
+        }
+
+        function drawPacMan() {
+            ctx.save();
+            ctx.translate(pacMan.x, pacMan.y);
+            
+            // Determine rotation based on direction
+            let rotation = 0;
+            if (pacMan.dx > 0) rotation = 0;
+            else if (pacMan.dx < 0) rotation = Math.PI;
+            else if (pacMan.dy > 0) rotation = Math.PI/2;
+            else if (pacMan.dy < 0) rotation = -Math.PI/2;
+            
+            ctx.rotate(rotation);
+            
+            // Animate mouth
+            pacMan.mouthOpen += 0.1 * pacMan.mouthDir;
+            if (pacMan.mouthOpen > 0.5 || pacMan.mouthOpen < 0) {
+                pacMan.mouthDir *= -1;
+            }
+            
+            ctx.beginPath();
+            ctx.arc(0, 0, pacMan.size/2, pacMan.mouthOpen, Math.PI * 2 - pacMan.mouthOpen);
+            ctx.lineTo(0, 0);
+            ctx.fillStyle = 'yellow';
+            ctx.fill();
+            
+            ctx.restore();
+        }
+
+        function drawGhost() {
+            ctx.fillStyle = 'red';
+            
+            // Ghost body
+            ctx.beginPath();
+            ctx.arc(ghost.x, ghost.y - ghost.size/4, ghost.size/2, Math.PI, 0, false);
+            ctx.lineTo(ghost.x + ghost.size/2, ghost.y + ghost.size/2);
+            
+            // Ghost tentacles
+            const tentacles = 4;
+            const tentacleWidth = ghost.size / tentacles;
+            for(let i = 0; i < tentacles; i++) {
+                ctx.lineTo(ghost.x + ghost.size/2 - tentacleWidth * (i + 1), 
+                          ghost.y + ghost.size/4);
+                ctx.lineTo(ghost.x + ghost.size/2 - tentacleWidth * i - tentacleWidth/2, 
+                          ghost.y + ghost.size/2);
+            }
+            
+            ctx.lineTo(ghost.x - ghost.size/2, ghost.y + ghost.size/4);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Ghost eyes
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(ghost.x - ghost.size/4, ghost.y - ghost.size/4, ghost.size/6, 0, Math.PI * 2);
+            ctx.arc(ghost.x + ghost.size/4, ghost.y - ghost.size/4, ghost.size/6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = 'blue';
+            ctx.beginPath();
+            ctx.arc(ghost.x - ghost.size/4 + ghost.dx*2, ghost.y - ghost.size/4 + ghost.dy*2, ghost.size/10, 0, Math.PI * 2);
+            ctx.arc(ghost.x + ghost.size/4 + ghost.dx*2, ghost.y - ghost.size/4 + ghost.dy*2, ghost.size/10, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawDots() {
+            ctx.fillStyle = 'white';
+            dots.forEach(dot => {
+                if (!dot.collected) {
+                    ctx.beginPath();
+                    ctx.arc(dot.x, dot.y, dot.size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+        }
+
+        function updatePositions() {
+            // Update Pac-Man position
+            pacMan.x += pacMan.dx;
+            pacMan.y += pacMan.dy;
+            
+            // Keep Pac-Man in bounds
+            if (pacMan.x < 0) pacMan.x = canvas.width;
+            if (pacMan.x > canvas.width) pacMan.x = 0;
+            if (pacMan.y < 0) pacMan.y = canvas.height;
+            if (pacMan.y > canvas.height) pacMan.y = 0;
+            
+            // Update ghost position (simple chase AI)
+            const dx = pacMan.x - ghost.x;
+            const dy = pacMan.y - ghost.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist > 0) {
+                ghost.dx = (dx / dist) * ghost.speed;
+                ghost.dy = (dy / dist) * ghost.speed;
+            }
+            
+            ghost.x += ghost.dx;
+            ghost.y += ghost.dy;
+            
+            // Check for collisions with dots
+            dots.forEach(dot => {
+                if (!dot.collected) {
+                    const dx = pacMan.x - dot.x;
+                    const dy = pacMan.y - dot.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (dist < pacMan.size/2 + dot.size) {
+                        dot.collected = true;
+                        score += 10;
+                        document.getElementById('score').textContent = `Score: ${score}`;
+                        
+                        // Check if all dots are collected
+                        if (dots.every(d => d.collected)) {
+                            currentPhase++;
+                            document.getElementById('currentPhase').textContent = currentPhase;
+                            generateDots();
+                            ghost.speed += 0.5;
+                        }
+                    }
+                }
+            });
+            
+            // Check for collision with ghost
+            const ghostDist = Math.sqrt(
+                Math.pow(pacMan.x - ghost.x, 2) + 
+                Math.pow(pacMan.y - ghost.y, 2)
+            );
+            
+            if (ghostDist < (pacMan.size + ghost.size) / 2) {
+                gameOver = true;
+                document.getElementById('finalScore').textContent = score;
+                document.getElementById('gameOverDialog').style.display = 'block';
+            }
+        }
+
+        function update() {
+            if (!gameStarted || gameOver) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            updatePositions();
+            drawDots();
+            drawPacMan();
+            drawGhost();
+            
+            requestAnimationFrame(update);
+        }
+
+        // Show start dialog
+        document.getElementById('startDialog').style.display = 'block';
+    </script>
+</body>
+</html>
